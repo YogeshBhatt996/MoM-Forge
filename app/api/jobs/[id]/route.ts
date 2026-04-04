@@ -50,7 +50,7 @@ export async function GET(
       transcript_file:files!transcript_file_id(*),
       template_file:files!template_file_id(*),
       template:templates(*),
-      events:job_events(* order:created_at.asc),
+      events:job_events(*),
       output:outputs(*, file:files(*))
     `)
     .eq("id", id)
