@@ -1,0 +1,52 @@
+{
+  "name": "mom-forge",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit",
+    "db:generate": "supabase gen types typescript --local > types/supabase.ts"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@supabase/auth-helpers-nextjs": "^0.10.0",
+    "@supabase/ssr": "^0.10.0",
+    "@supabase/supabase-js": "^2.39.7",
+    "@tanstack/react-query": "^5.22.2",
+    "date-fns": "^3.6.0",
+    "exceljs": "^4.4.0",
+    "lucide-react": "^0.341.0",
+    "mammoth": "^1.7.0",
+    "next": "15.2.4",
+    "next-themes": "^0.3.0",
+    "openai": "^4.28.0",
+    "pdf-parse": "^1.1.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-dropzone": "^14.2.3",
+    "react-hook-form": "^7.51.0",
+    "sonner": "^1.4.3",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.29.0",
+    "@babel/preset-env": "^7.29.2",
+    "@babel/preset-react": "^7.28.5",
+    "@babel/preset-typescript": "^7.28.5",
+    "@types/node": "^20",
+    "@types/pdf-parse": "^1.1.4",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/uuid": "^10.0.0",
+    "autoprefixer": "^10.0.1",
+    "babel-plugin-module-resolver": "^5.0.3",
+    "eslint": "^8",
+    "eslint-config-next": "15.2.4",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5"
+  }
+}
