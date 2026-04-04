@@ -1,183 +1,289 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Excel Output Generator
-// Converts a MoMData object into a well-formatted .xlsx file, mirroring the
-// structure detected in the uploaded template.
+// Single-sheet MoM layout matching CRW reference format.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import ExcelJS from "exceljs";
 import type { MoMData, TemplateStructure } from "@/types";
 
-const BRAND_BLUE = "FF2563EB";
-const HEADER_BG = "FF1E3A8A";
-const HEADER_FG = "FFFFFFFF";
-const ALT_ROW = "FFDBEAFE";
+const HEADER_BG  = "FF1E3A8A"; // dark navy
+const HEADER_FG  = "FFFFFFFF";
+const SECTION_BG = "FF2563EB"; // brand blue
+const SECTION_FG = "FFFFFFFF";
+const ALT_ROW    = "FFDBEAFE"; // light blue
+const BORDER_COL = "FF93C5FD";
 
-function styleHeader(cell: ExcelJS.Cell) {
-  cell.font = { bold: true, color: { argb: HEADER_FG }, size: 11 };
-  cell.fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: HEADER_BG },
-  };
-  cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+// ─── EST conversion ──────────────────────────────────────────────────────────
+// Attempts to parse a time string from the transcript and re-format in EST.
+// Handles formats like "10:00 AM IST", "3:30 PM GMT+5:30", "14:00 UTC", etc.
+// Falls back to the original string with "(EST)" appended if un-parseable.
+function toEST(timeStr: string): string {
+  if (!timeStr || timeStr.toLowerCase().includes("not specified")) return timeStr;
+
+  // Try to extract hours, minutes, and AM/PM
+  const match = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+  if (!match) return `${timeStr} (EST)`;
+
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const ampm = match[3]?.toUpperCase();
+
+  // Convert to 24h
+  if (ampm === "PM" && hours !== 12) hours += 12;
+  if (ampm === "AM" && hours === 12) hours = 0;
+
+  // Detect source timezone offset from string
+  let offsetHours = 0; // assume UTC if not specified
+  const upperStr = timeStr.toUpperCase();
+  if (upperStr.includes("IST")) offsetHours = 5.5;       // India +5:30
+  else if (upperStr.includes("GMT+5:30")) offsetHours = 5.5;
+  else if (upperStr.includes("CST") && !upperStr.includes("UTC")) offsetHours = -6;
+  else if (upperStr.includes("PST")) offsetHours = -8;
+  else if (upperStr.includes("PDT")) offsetHours = -7;
+  else if (upperStr.includes("CDT")) offsetHours = -5;
+  else if (upperStr.includes("MST")) offsetHours = -7;
+  else if (upperStr.includes("MDT")) offsetHours = -6;
+  else if (upperStr.includes("BST")) offsetHours = 1;
+  else if (upperStr.includes("CET")) offsetHours = 1;
+  else if (upperStr.includes("AEST")) offsetHours = 10;
+
+  // EST = UTC-5
+  const totalMinutesUTC = hours * 60 + minutes - offsetHours * 60;
+  let estMinutes = totalMinutesUTC - (-5 * 60); // subtract EST offset
+  // Normalise
+  estMinutes = ((estMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+
+  const estH = Math.floor(estMinutes / 60);
+  const estM = estMinutes % 60;
+  const period = estH >= 12 ? "PM" : "AM";
+  const displayH = estH % 12 === 0 ? 12 : estH % 12;
+  const displayM = String(estM).padStart(2, "0");
+
+  return `${displayH}:${displayM} ${period} EST`;
+}
+
+// ─── Styling helpers ──────────────────────────────────────────────────────────
+function applyThin(cell: ExcelJS.Cell) {
   cell.border = {
-    bottom: { style: "thin", color: { argb: BRAND_BLUE } },
+    top:    { style: "thin", color: { argb: BORDER_COL } },
+    left:   { style: "thin", color: { argb: BORDER_COL } },
+    bottom: { style: "thin", color: { argb: BORDER_COL } },
+    right:  { style: "thin", color: { argb: BORDER_COL } },
   };
 }
 
-function styleDataRow(row: ExcelJS.Row, rowIndex: number) {
-  row.eachCell({ includeEmpty: true }, (cell) => {
-    cell.alignment = { vertical: "top", wrapText: true };
-    if (rowIndex % 2 === 0) {
-      cell.fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: ALT_ROW },
-      };
-    }
+function styleColumnHeader(cell: ExcelJS.Cell) {
+  cell.font  = { bold: true, color: { argb: HEADER_FG }, size: 10 };
+  cell.fill  = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_BG } };
+  cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+  applyThin(cell);
+}
+
+function styleSectionLabel(cell: ExcelJS.Cell) {
+  cell.font  = { bold: true, color: { argb: SECTION_FG }, size: 11 };
+  cell.fill  = { type: "pattern", pattern: "solid", fgColor: { argb: SECTION_BG } };
+  cell.alignment = { vertical: "middle", horizontal: "left" };
+  applyThin(cell);
+}
+
+function styleData(cell: ExcelJS.Cell, alt = false) {
+  if (alt) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: ALT_ROW } };
+  cell.alignment = { vertical: "top", wrapText: true };
+  applyThin(cell);
+}
+
+// ─── Agenda brief builder ─────────────────────────────────────────────────────
+// Joins agenda items into a short paragraph (max ~4 sentences).
+function buildAgendaBrief(items: string[]): string {
+  if (!items || items.length === 0) return "No agenda items specified.";
+  const sentences = items.map((item, i) => {
+    const clean = item.replace(/^\d+[\.\)]\s*/, "").trim();
+    return i === 0 ? `The meeting covered ${clean}.` : `${clean} was also discussed.`;
   });
+  // Cap at 4 sentences
+  return sentences.slice(0, 4).join(" ");
 }
 
-function addTitleBlock(
-  ws: ExcelJS.Worksheet,
-  mom: MoMData,
-  totalCols: number
-) {
-  // Merge title row
-  ws.mergeCells(1, 1, 1, totalCols);
-  const titleCell = ws.getCell(1, 1);
-  titleCell.value = mom.meeting_title;
-  titleCell.font = { bold: true, size: 16, color: { argb: HEADER_FG } };
-  titleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_BG } };
-  titleCell.alignment = { vertical: "middle", horizontal: "center" };
-  ws.getRow(1).height = 36;
-
-  // Meta row
-  ws.mergeCells(2, 1, 2, totalCols);
-  const metaCell = ws.getCell(2, 1);
-  metaCell.value =
-    `Date: ${mom.meeting_date}  |  Time: ${mom.meeting_time}  |  ` +
-    `Platform: ${mom.location_or_platform}  |  Facilitator: ${mom.facilitator}`;
-  metaCell.font = { italic: true, size: 10 };
-  metaCell.alignment = { vertical: "middle", horizontal: "center" };
-  ws.getRow(2).height = 20;
-}
-
+// ─── Main generator ───────────────────────────────────────────────────────────
 export async function generateExcelOutput(
   mom: MoMData,
-  templateStructure: TemplateStructure | null
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _templateStructure: TemplateStructure | null
 ): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = "MoM Forge";
   wb.created = new Date();
 
-  // ─── Overview sheet ───────────────────────────────────────────────────────
-  const overview = wb.addWorksheet("Overview");
-  overview.columns = [
-    { header: "Field", key: "field", width: 28 },
-    { header: "Value", key: "value", width: 55 },
-  ];
-  addTitleBlock(overview, mom, 2);
+  const ws = wb.addWorksheet("Minutes of Meeting");
+  const COLS = 5; // A–E
 
-  const overviewData = [
-    ["Meeting Title", mom.meeting_title],
-    ["Date", mom.meeting_date],
-    ["Time", mom.meeting_time],
-    ["Location / Platform", mom.location_or_platform],
-    ["Facilitator", mom.facilitator],
-    ["Agenda Items", mom.agenda_items.join("; ")],
-    ["Next Meeting Date", mom.next_meeting.date],
-    ["Next Meeting Time", mom.next_meeting.time],
-    ["Next Meeting Agenda", mom.next_meeting.agenda],
-    ["Additional Notes", mom.additional_notes],
-  ];
+  // Set column widths
+  ws.getColumn(1).width = 6;   // # / label
+  ws.getColumn(2).width = 38;  // main content / action
+  ws.getColumn(3).width = 26;  // owner / org
+  ws.getColumn(4).width = 16;  // due date
+  ws.getColumn(5).width = 24;  // status / decisions
 
-  const headerRow = overview.getRow(3);
-  headerRow.values = ["Field", "Value"];
-  headerRow.eachCell(styleHeader);
-  headerRow.height = 24;
+  let row = 1;
 
-  overviewData.forEach(([field, value], i) => {
-    const row = overview.addRow({ field, value });
-    styleDataRow(row, i);
-  });
+  // ── Title block ─────────────────────────────────────────────────────────────
+  ws.mergeCells(row, 1, row, COLS);
+  const titleCell = ws.getCell(row, 1);
+  titleCell.value = mom.meeting_title || "Minutes of Meeting";
+  titleCell.font  = { bold: true, size: 16, color: { argb: HEADER_FG } };
+  titleCell.fill  = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_BG } };
+  titleCell.alignment = { vertical: "middle", horizontal: "center" };
+  ws.getRow(row).height = 38;
+  row++;
 
-  // ─── Attendees sheet ──────────────────────────────────────────────────────
-  const attendeesWs = wb.addWorksheet("Attendees");
-  attendeesWs.columns = [
-    { header: "Name", key: "name", width: 30 },
-    { header: "Role", key: "role", width: 28 },
-    { header: "Organization", key: "organization", width: 30 },
-  ];
-  addTitleBlock(attendeesWs, mom, 3);
-  const attHeader = attendeesWs.getRow(3);
-  attHeader.values = ["Name", "Role", "Organization"];
-  attHeader.eachCell(styleHeader);
-  attHeader.height = 24;
+  // ── Meta row ─────────────────────────────────────────────────────────────────
+  ws.mergeCells(row, 1, row, COLS);
+  const metaCell = ws.getCell(row, 1);
+  metaCell.value =
+    `Date: ${mom.meeting_date}   |   Time: ${toEST(mom.meeting_time)}   |   ` +
+    `Platform: ${mom.location_or_platform}   |   Facilitator: ${mom.facilitator}`;
+  metaCell.font = { italic: true, size: 10, color: { argb: "FF374151" } };
+  metaCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE0E7FF" } };
+  metaCell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+  ws.getRow(row).height = 22;
+  row++;
+
+  // ── SECTION: Overview ────────────────────────────────────────────────────────
+  row++; // blank spacer
+  ws.mergeCells(row, 1, row, COLS);
+  const ovHeader = ws.getCell(row, 1);
+  ovHeader.value = "OVERVIEW";
+  styleSectionLabel(ovHeader);
+  ws.getRow(row).height = 22;
+  row++;
+
+  ws.mergeCells(row, 1, row, COLS);
+  const agendaCell = ws.getCell(row, 1);
+  agendaCell.value = buildAgendaBrief(mom.agenda_items);
+  agendaCell.font  = { size: 10 };
+  agendaCell.alignment = { vertical: "top", wrapText: true };
+  applyThin(agendaCell);
+  ws.getRow(row).height = 60;
+  row++;
+
+  // ── SECTION: Attendees ───────────────────────────────────────────────────────
+  row++; // spacer
+  ws.mergeCells(row, 1, row, COLS);
+  const attHeader = ws.getCell(row, 1);
+  attHeader.value = "ATTENDEES";
+  styleSectionLabel(attHeader);
+  ws.getRow(row).height = 22;
+  row++;
+
+  // Column headers — Name (cols 1-3), Organization (cols 4-5)
+  ws.mergeCells(row, 1, row, 3);
+  styleColumnHeader(ws.getCell(row, 1));
+  ws.getCell(row, 1).value = "Name";
+  ws.mergeCells(row, 4, row, COLS);
+  styleColumnHeader(ws.getCell(row, 4));
+  ws.getCell(row, 4).value = "Organization";
+  ws.getRow(row).height = 20;
+  row++;
+
   mom.attendees.forEach((a, i) => {
-    const row = attendeesWs.addRow(a);
-    styleDataRow(row, i);
+    ws.mergeCells(row, 1, row, 3);
+    const nameCell = ws.getCell(row, 1);
+    nameCell.value = a.name;
+    styleData(nameCell, i % 2 === 1);
+
+    ws.mergeCells(row, 4, row, COLS);
+    const orgCell = ws.getCell(row, 4);
+    orgCell.value = a.organization;
+    styleData(orgCell, i % 2 === 1);
+
+    ws.getRow(row).height = 18;
+    row++;
   });
 
-  // ─── Discussion & Decisions sheet ────────────────────────────────────────
-  const discussionWs = wb.addWorksheet("Discussion & Decisions");
-  discussionWs.columns = [
-    { header: "Topic", key: "topic", width: 28 },
-    { header: "Summary", key: "summary", width: 50 },
-    { header: "Decisions", key: "decisions", width: 50 },
-  ];
-  addTitleBlock(discussionWs, mom, 3);
-  const discHeader = discussionWs.getRow(3);
-  discHeader.values = ["Topic", "Summary", "Decisions"];
-  discHeader.eachCell(styleHeader);
-  discHeader.height = 24;
+  // ── SECTION: Discussion & Decisions ─────────────────────────────────────────
+  row++;
+  ws.mergeCells(row, 1, row, COLS);
+  const discHeader = ws.getCell(row, 1);
+  discHeader.value = "DISCUSSION & DECISIONS";
+  styleSectionLabel(discHeader);
+  ws.getRow(row).height = 22;
+  row++;
+
+  // Column headers
+  styleColumnHeader(ws.getCell(row, 1));  ws.getCell(row, 1).value = "#";
+  ws.mergeCells(row, 2, row, 3);
+  styleColumnHeader(ws.getCell(row, 2));  ws.getCell(row, 2).value = "Topic & Summary";
+  ws.mergeCells(row, 4, row, COLS);
+  styleColumnHeader(ws.getCell(row, 4));  ws.getCell(row, 4).value = "Decisions";
+  ws.getRow(row).height = 20;
+  row++;
+
   mom.discussion_summary.forEach((d, i) => {
-    const row = discussionWs.addRow({
-      topic: d.topic,
-      summary: d.summary,
-      decisions: d.decisions.join("\n• "),
-    });
-    styleDataRow(row, i);
-    row.height = Math.max(30, d.decisions.length * 18);
+    const alt = i % 2 === 1;
+    const numCell = ws.getCell(row, 1);
+    numCell.value = i + 1;
+    numCell.alignment = { horizontal: "center", vertical: "top" };
+    styleData(numCell, alt);
+
+    ws.mergeCells(row, 2, row, 3);
+    const topicCell = ws.getCell(row, 2);
+    topicCell.value = `${d.topic}\n\n${d.summary}`;
+    topicCell.font  = { size: 10 };
+    styleData(topicCell, alt);
+
+    ws.mergeCells(row, 4, row, COLS);
+    const decCell = ws.getCell(row, 4);
+    decCell.value  = d.decisions.length > 0 ? "• " + d.decisions.join("\n• ") : "—";
+    decCell.font   = { size: 10 };
+    styleData(decCell, alt);
+
+    ws.getRow(row).height = Math.max(40, (d.decisions.length + 1) * 16);
+    row++;
   });
 
-  // ─── Action Items sheet ───────────────────────────────────────────────────
-  const actionsWs = wb.addWorksheet("Action Items");
-  actionsWs.columns = [
-    { header: "#", key: "num", width: 6 },
-    { header: "Action", key: "action", width: 50 },
-    { header: "Owner", key: "owner", width: 28 },
-    { header: "Due Date", key: "due_date", width: 16 },
-    { header: "Status / Remarks", key: "status_remarks", width: 28 },
-  ];
-  addTitleBlock(actionsWs, mom, 5);
-  const actHeader = actionsWs.getRow(3);
-  actHeader.values = ["#", "Action", "Owner", "Due Date", "Status / Remarks"];
-  actHeader.eachCell(styleHeader);
-  actHeader.height = 24;
+  // ── SECTION: Action Items ────────────────────────────────────────────────────
+  row++;
+  ws.mergeCells(row, 1, row, COLS);
+  const actSec = ws.getCell(row, 1);
+  actSec.value = "ACTION ITEMS";
+  styleSectionLabel(actSec);
+  ws.getRow(row).height = 22;
+  row++;
+
+  // Column headers
+  styleColumnHeader(ws.getCell(row, 1)); ws.getCell(row, 1).value = "#";
+  styleColumnHeader(ws.getCell(row, 2)); ws.getCell(row, 2).value = "Action";
+  styleColumnHeader(ws.getCell(row, 3)); ws.getCell(row, 3).value = "Owner";
+  styleColumnHeader(ws.getCell(row, 4)); ws.getCell(row, 4).value = "Due Date";
+  styleColumnHeader(ws.getCell(row, 5)); ws.getCell(row, 5).value = "Status / Remarks";
+  ws.getRow(row).height = 20;
+  row++;
+
   mom.action_items.forEach((a, i) => {
-    const row = actionsWs.addRow({ num: i + 1, ...a });
-    styleDataRow(row, i);
+    const alt = i % 2 === 1;
+    [
+      [1, i + 1],
+      [2, a.action],
+      [3, a.owner],
+      [4, a.due_date],
+      [5, a.status_remarks],
+    ].forEach(([col, val]) => {
+      const cell = ws.getCell(row, col as number);
+      cell.value = val;
+      if (col === 1) cell.alignment = { horizontal: "center", vertical: "top" };
+      styleData(cell, alt);
+    });
+    ws.getRow(row).height = Math.max(24, 18);
+    row++;
   });
 
-  // ─── Apply template sheet order if structure provided ─────────────────────
-  if (templateStructure) {
-    // Re-order sheets to match template where possible (best effort)
-    const sheetNames = wb.worksheets.map((ws) => ws.name);
-    templateStructure.sheets.forEach((ts) => {
-      const purpose = ts.purpose;
-      let targetName: string | undefined;
-      if (purpose === "action_items") targetName = "Action Items";
-      else if (purpose === "attendees") targetName = "Attendees";
-      else if (purpose === "discussion_summary") targetName = "Discussion & Decisions";
-      else if (purpose === "overview") targetName = "Overview";
-
-      if (targetName && sheetNames.includes(targetName)) {
-        // ExcelJS doesn't expose sheet reordering directly – this is a placeholder
-        // for a future enhancement to fully mirror arbitrary templates
-      }
-    });
-  }
+  // ── Footer ───────────────────────────────────────────────────────────────────
+  row++;
+  ws.mergeCells(row, 1, row, COLS);
+  const footer = ws.getCell(row, 1);
+  footer.value = `Generated by MoM Forge  |  ${new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" })}`;
+  footer.font  = { italic: true, size: 9, color: { argb: "FF9CA3AF" } };
+  footer.alignment = { horizontal: "center" };
 
   const buffer = await wb.xlsx.writeBuffer();
   return Buffer.from(buffer);
