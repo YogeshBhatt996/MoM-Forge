@@ -12,6 +12,9 @@ export const ALLOWED_TRANSCRIPT_TYPES = [
 export const ALLOWED_TEMPLATE_TYPES = [
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/msword",
+  "application/pdf",
 ];
 
 export const uploadRequestSchema = z.object({
@@ -20,7 +23,7 @@ export const uploadRequestSchema = z.object({
   }),
   transcript_size: z.number().max(MAX_SIZE, "Transcript exceeds maximum file size"),
   template_mime: z.string().refine((m) => ALLOWED_TEMPLATE_TYPES.includes(m), {
-    message: "Template must be an .xlsx Excel file",
+    message: "Template must be an .xlsx, .docx, or .pdf file",
   }),
   template_size: z.number().max(MAX_SIZE, "Template exceeds maximum file size"),
   template_name: z.string().min(1).max(255).optional(),

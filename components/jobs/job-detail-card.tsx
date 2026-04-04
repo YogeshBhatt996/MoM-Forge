@@ -10,6 +10,7 @@ export function JobDetailCard({ jobId }: { jobId: string }) {
   const [job, setJob] = useState<JobDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [retrying, setRetrying] = useState(false);
 
   const fetchJob = async () => {
@@ -43,6 +44,25 @@ export function JobDetailCard({ jobId }: { jobId: string }) {
       toast.error(err instanceof Error ? err.message : "Download failed");
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    setDownloadingPdf(true);
+    try {
+      const res = await fetch(`/api/pdf/${jobId}`);
+      if (!res.ok) throw new Error("Failed to generate PDF");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `minutes_${jobId}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "PDF download failed");
+    } finally {
+      setDownloadingPdf(false);
     }
   };
 
@@ -95,14 +115,24 @@ export function JobDetailCard({ jobId }: { jobId: string }) {
           <div className="flex items-center gap-3">
             <StatusBadge status={job.status} />
             {job.status === "completed" && (
-              <button onClick={handleDownload} disabled={downloading} className="btn-primary">
-                {downloading ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Download className="w-4 h-4" />
-                )}
-                Download Excel
-              </button>
+              <>
+                <button onClick={handleDownload} disabled={downloading} className="btn-primary">
+                  {downloading ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  Download Excel
+                </button>
+                <button onClick={handleDownloadPdf} disabled={downloadingPdf} className="btn-secondary">
+                  {downloadingPdf ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  Download PDF
+                </button>
+              </>
             )}
             {job.status === "failed" && (
               <button onClick={handleRetry} disabled={retrying} className="btn-secondary">

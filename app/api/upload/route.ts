@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData();
     const transcriptFile = formData.get("transcript") as File | null;
     const templateFile = formData.get("template") as File | null;
+    const existingTemplateId = (formData.get("existing_template_id") as string) || null;
     const templateName =
       (formData.get("template_name") as string) || templateFile?.name || "Unnamed Template";
     const templateDescription = (formData.get("template_description") as string) || null;
@@ -87,20 +88,6 @@ export async function POST(req: NextRequest) {
     }
     if (transcriptFile.size > MAX_SIZE) {
       return NextResponse.json({ error: "Transcript file is too large" }, { status: 400 });
-    }
-
-    // ── Validate template ──────────────────────────────────────────────────
-    if (!templateFile) {
-      return NextResponse.json({ error: "Template file is required" }, { status: 400 });
-    }
-    if (!ALLOWED_TEMPLATE_TYPES.includes(templateFile.type)) {
-      return NextResponse.json(
-        { error: "Template must be an .xlsx Excel file" },
-        { status: 400 }
-      );
-    }
-    if (templateFile.size > MAX_SIZE) {
-      return NextResponse.json({ error: "Template file is too large" }, { status: 400 });
     }
 
     const service = createServiceClient();
@@ -128,43 +115,75 @@ export async function POST(req: NextRequest) {
 
     if (tErr) throw new Error(`Failed to save transcript record: ${tErr.message}`);
 
-    // ── Upload template ────────────────────────────────────────────────────
-    const templateBuffer = Buffer.from(await templateFile.arrayBuffer());
-    const templateFileId = uuidv4();
-    const templatePath = `${user.id}/templates/${templateFileId}_${templateFile.name}`;
-    await uploadFileToStorage(templateBuffer, templatePath, templateFile.type, "uploads");
+    // ── Use existing template or upload new one ────────────────────────────
+    let templateFileId: string;
+    let templateId: string;
 
-    const { data: templateFileRecord, error: tmfErr } = await service
-      .from("files")
-      .insert({
-        id: templateFileId,
+    if (existingTemplateId) {
+      // Use an existing saved template
+      const { data: existingTmpl, error: etErr } = await service
+        .from("templates")
+        .select("id, file_id")
+        .eq("id", existingTemplateId)
+        .eq("user_id", user.id)
+        .single();
+      if (etErr || !existingTmpl) {
+        return NextResponse.json({ error: "Template not found" }, { status: 404 });
+      }
+      templateFileId = existingTmpl.file_id;
+      templateId = existingTmpl.id;
+    } else {
+      // Validate and upload new template file
+      if (!templateFile) {
+        return NextResponse.json({ error: "Template file is required" }, { status: 400 });
+      }
+      if (!ALLOWED_TEMPLATE_TYPES.includes(templateFile.type)) {
+        return NextResponse.json(
+          { error: "Template must be an .xlsx, .docx, or .pdf file" },
+          { status: 400 }
+        );
+      }
+      if (templateFile.size > MAX_SIZE) {
+        return NextResponse.json({ error: "Template file is too large" }, { status: 400 });
+      }
+
+      const templateBuffer = Buffer.from(await templateFile.arrayBuffer());
+      templateFileId = uuidv4();
+      const templatePath = `${user.id}/templates/${templateFileId}_${templateFile.name}`;
+      await uploadFileToStorage(templateBuffer, templatePath, templateFile.type, "uploads");
+
+      const { data: templateFileRecord, error: tmfErr } = await service
+        .from("files")
+        .insert({
+          id: templateFileId,
+          user_id: user.id,
+          name: `${templateFileId}_${templateFile.name}`,
+          original_name: templateFile.name,
+          mime_type: templateFile.type,
+          size_bytes: templateFile.size,
+          file_type: "template",
+          storage_path: templatePath,
+        })
+        .select()
+        .single();
+
+      if (tmfErr) throw new Error(`Failed to save template file record: ${tmfErr.message}`);
+      templateFileId = templateFileRecord.id;
+
+      templateId = uuidv4();
+      const { error: tmErr } = await service.from("templates").insert({
+        id: templateId,
         user_id: user.id,
-        name: `${templateFileId}_${templateFile.name}`,
-        original_name: templateFile.name,
-        mime_type: templateFile.type,
-        size_bytes: templateFile.size,
-        file_type: "template",
-        storage_path: templatePath,
-      })
-      .select()
-      .single();
-
-    if (tmfErr) throw new Error(`Failed to save template file record: ${tmfErr.message}`);
-
-    // ── Create template record ─────────────────────────────────────────────
-    const templateId = uuidv4();
-    const { error: tmErr } = await service.from("templates").insert({
-      id: templateId,
-      user_id: user.id,
-      file_id: templateFileRecord.id,
-      name: templateName,
-      description: templateDescription,
-    });
-    if (tmErr) throw new Error(`Failed to save template record: ${tmErr.message}`);
+        file_id: templateFileId,
+        name: templateName,
+        description: templateDescription,
+      });
+      if (tmErr) throw new Error(`Failed to save template record: ${tmErr.message}`);
+    }
 
     return NextResponse.json({
       transcript_file_id: transcriptRecord.id,
-      template_file_id: templateFileRecord.id,
+      template_file_id: templateFileId,
       template_id: templateId,
     });
   } catch (err) {
