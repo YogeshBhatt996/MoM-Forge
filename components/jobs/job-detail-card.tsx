@@ -122,7 +122,7 @@ export function JobDetailCard({ jobId }: { jobId: string }) {
                   ) : (
                     <Download className="w-4 h-4" />
                   )}
-                  Download Excel
+                  {job.template_file_id ? "Download Excel" : "Download Word"}
                 </button>
                 <button onClick={handleDownloadPdf} disabled={downloadingPdf} className="btn-secondary">
                   {downloadingPdf ? (

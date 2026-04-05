@@ -1,7 +1,10 @@
 "use client";
 import { useState, useCallback, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
-import { UploadCloud, FileText, Sheet, X, ArrowRight, Loader2, CheckCircle2, Star } from "lucide-react";
+import {
+  FileText, Sheet, X, ArrowRight, Loader2, CheckCircle2,
+  Star, Info, Upload,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 
@@ -25,6 +28,7 @@ function FileDrop({
   onDrop,
   onClear,
   icon: Icon,
+  optional,
 }: {
   label: string;
   accept: Record<string, string[]>;
@@ -32,6 +36,7 @@ function FileDrop({
   onDrop: (f: File) => void;
   onClear: () => void;
   icon: React.ElementType;
+  optional?: boolean;
 }) {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: (accepted) => accepted[0] && onDrop(accepted[0]),
@@ -50,12 +55,8 @@ function FileDrop({
       {file ? (
         <>
           <CheckCircle2 className="w-8 h-8 text-green-500 mb-2" />
-          <p className="text-sm font-medium text-gray-800 dark:text-gray-200 text-center break-all">
-            {file.name}
-          </p>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {(file.size / 1024).toFixed(1)} KB
-          </p>
+          <p className="text-sm font-medium text-gray-800 dark:text-gray-200 text-center break-all">{file.name}</p>
+          <p className="text-xs text-gray-500 mt-0.5">{(file.size / 1024).toFixed(1)} KB</p>
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onClear(); }}
@@ -68,6 +69,11 @@ function FileDrop({
         <>
           <Icon className="w-8 h-8 text-gray-400 mb-2" />
           <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{label}</p>
+          {optional && (
+            <span className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">
+              Optional
+            </span>
+          )}
           <p className="text-xs text-gray-400 mt-1">
             {isDragActive ? "Drop it here" : "Drag & drop or click to browse"}
           </p>
@@ -80,7 +86,6 @@ function FileDrop({
 export function UploadWizard() {
   const [files, setFiles] = useState<FileState>({ transcript: null, template: null });
   const [step, setStep] = useState<Step>("files");
-  const [templateName, setTemplateName] = useState("");
   const [jobId, setJobId] = useState<string | null>(null);
   const [defaultTemplate, setDefaultTemplate] = useState<DefaultTemplate | null>(null);
   const [useDefault, setUseDefault] = useState(false);
@@ -90,9 +95,7 @@ export function UploadWizard() {
     fetch("/api/templates")
       .then((r) => r.ok ? r.json() : { templates: [] })
       .then(({ templates }) => {
-        const def = (templates as DefaultTemplate[] & { is_default?: boolean }[]).find(
-          (t: { is_default?: boolean }) => t.is_default
-        );
+        const def = (templates ?? []).find((t: { is_default?: boolean }) => t.is_default);
         if (def) {
           setDefaultTemplate(def as DefaultTemplate);
           setUseDefault(true);
@@ -103,18 +106,13 @@ export function UploadWizard() {
 
   const handleSubmit = useCallback(async () => {
     if (!files.transcript) {
-      toast.error("Please select a transcript file.");
-      return;
-    }
-    if (!useDefault && !files.template) {
-      toast.error("Please select a template file or use the default template.");
+      toast.error("Please select a meeting transcript.");
       return;
     }
 
     setStep("processing");
 
     try {
-      // Step 1: upload files
       const fd = new FormData();
       fd.append("transcript", files.transcript);
 
@@ -122,8 +120,8 @@ export function UploadWizard() {
         fd.append("existing_template_id", defaultTemplate.id);
       } else if (files.template) {
         fd.append("template", files.template);
-        fd.append("template_name", templateName || files.template.name.replace(/\.(xlsx|docx|pdf)$/i, ""));
       }
+      // No template at all → Word doc will be generated automatically
 
       const uploadRes = await fetch("/api/upload", { method: "POST", body: fd });
       if (!uploadRes.ok) {
@@ -132,7 +130,6 @@ export function UploadWizard() {
       }
       const { transcript_file_id, template_file_id, template_id } = await uploadRes.json();
 
-      // Step 2: create job
       const jobRes = await fetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -142,7 +139,6 @@ export function UploadWizard() {
       const { job_id } = await jobRes.json();
       setJobId(job_id);
 
-      // Step 3: process
       const processRes = await fetch(`/api/process/${job_id}`, { method: "POST" });
       if (!processRes.ok) {
         const { error } = await processRes.json();
@@ -152,11 +148,10 @@ export function UploadWizard() {
       setStep("done");
       toast.success("Minutes generated successfully!");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Something went wrong";
-      toast.error(msg);
+      toast.error(err instanceof Error ? err.message : "Something went wrong");
       setStep("files");
     }
-  }, [files, templateName, useDefault, defaultTemplate]);
+  }, [files, useDefault, defaultTemplate]);
 
   if (step === "done" && jobId) {
     return (
@@ -167,19 +162,9 @@ export function UploadWizard() {
           <p className="text-gray-500 mt-1">Your MoM has been generated and is ready to download.</p>
         </div>
         <div className="flex gap-3">
+          <button onClick={() => router.push(`/jobs/${jobId}`)} className="btn-primary">View & Download</button>
           <button
-            onClick={() => router.push(`/jobs/${jobId}`)}
-            className="btn-primary"
-          >
-            View & Download
-          </button>
-          <button
-            onClick={() => {
-              setFiles({ transcript: null, template: null });
-              setTemplateName("");
-              setJobId(null);
-              setStep("files");
-            }}
+            onClick={() => { setFiles({ transcript: null, template: null }); setJobId(null); setStep("files"); }}
             className="btn-secondary"
           >
             New Job
@@ -193,9 +178,7 @@ export function UploadWizard() {
     return (
       <div className="flex flex-col items-center py-16 gap-4">
         <Loader2 className="w-12 h-12 text-blue-600 animate-spin" />
-        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
-          Processing your transcript…
-        </h2>
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Processing your transcript…</h2>
         <p className="text-sm text-gray-500 text-center max-w-xs">
           AI is extracting and structuring your meeting minutes. This usually takes 15–45 seconds.
         </p>
@@ -206,13 +189,25 @@ export function UploadWizard() {
     );
   }
 
-  const canSubmit = !!files.transcript && (useDefault ? !!defaultTemplate : !!files.template);
+  const noTemplate = !useDefault && !files.template;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      {/* Hint banner */}
+      <div className="flex items-start gap-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900 px-4 py-3">
+        <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+        <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
+          <span className="font-semibold">Only the transcript is required.</span> Optionally add a reference template (.xlsx / .docx / .pdf) to match your organisation&apos;s format — or skip it and receive a professionally formatted Word document automatically.
+        </p>
+      </div>
+
       <div className="grid sm:grid-cols-2 gap-4">
+        {/* Transcript */}
         <div>
-          <p className="label mb-2">Meeting Transcript</p>
+          <div className="flex items-center gap-2 mb-2">
+            <p className="label">Meeting Transcript</p>
+            <span className="text-[10px] font-bold uppercase tracking-wide text-white bg-blue-600 px-2 py-0.5 rounded-full">Required</span>
+          </div>
           <FileDrop
             label="Upload transcript (.txt, .pdf, .docx)"
             accept={{
@@ -226,35 +221,31 @@ export function UploadWizard() {
             icon={FileText}
           />
         </div>
+
+        {/* Template */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <p className="label">MoM Template</p>
+            <div className="flex items-center gap-2">
+              <p className="label">MoM Template</p>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">Optional</span>
+            </div>
             {defaultTemplate && (
               <button
                 type="button"
-                onClick={() => {
-                  setUseDefault((v) => !v);
-                  if (!useDefault) setFiles((s) => ({ ...s, template: null }));
-                }}
+                onClick={() => { setUseDefault((v) => !v); if (!useDefault) setFiles((s) => ({ ...s, template: null })); }}
                 className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition
-                  ${useDefault
-                    ? "bg-blue-600 text-white border-blue-600"
-                    : "text-blue-600 border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20"}`}
+                  ${useDefault ? "bg-blue-600 text-white border-blue-600" : "text-blue-600 border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20"}`}
               >
-                <Star className="w-3 h-3" />
-                Use default
+                <Star className="w-3 h-3" /> Use default
               </button>
             )}
           </div>
+
           {useDefault && defaultTemplate ? (
             <div className="flex flex-col items-center justify-center rounded-xl border-2 border-blue-400 bg-blue-50 dark:bg-blue-950/30 p-6 gap-2">
               <Star className="w-7 h-7 text-blue-500" />
-              <p className="text-sm font-medium text-gray-800 dark:text-gray-200 text-center">
-                {defaultTemplate.name}
-              </p>
-              {defaultTemplate.file && (
-                <p className="text-xs text-gray-500">{defaultTemplate.file.original_name}</p>
-              )}
+              <p className="text-sm font-medium text-gray-800 dark:text-gray-200 text-center">{defaultTemplate.name}</p>
+              {defaultTemplate.file && <p className="text-xs text-gray-500">{defaultTemplate.file.original_name}</p>}
               <p className="text-xs text-blue-500">Default template selected</p>
             </div>
           ) : (
@@ -269,27 +260,24 @@ export function UploadWizard() {
               onDrop={(f) => setFiles((s) => ({ ...s, template: f }))}
               onClear={() => setFiles((s) => ({ ...s, template: null }))}
               icon={Sheet}
+              optional
             />
+          )}
+
+          {/* No-template hint */}
+          {noTemplate && !defaultTemplate && (
+            <p className="mt-2 flex items-center gap-1.5 text-xs text-gray-400">
+              <Upload className="w-3 h-3 shrink-0" />
+              No template? A formatted Word document will be generated for you.
+            </p>
           )}
         </div>
       </div>
 
-      {!useDefault && (
-        <div>
-          <label className="label">Template name (optional)</label>
-          <input
-            className="input max-w-sm"
-            placeholder="e.g. Q2 Planning Template"
-            value={templateName}
-            onChange={(e) => setTemplateName(e.target.value)}
-          />
-        </div>
-      )}
-
       <div className="flex justify-end">
         <button
           onClick={handleSubmit}
-          disabled={!canSubmit}
+          disabled={!files.transcript}
           className="btn-primary"
         >
           Generate MoM <ArrowRight className="w-4 h-4" />

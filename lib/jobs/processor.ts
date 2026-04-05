@@ -10,6 +10,7 @@ import { extractTranscriptText } from "@/lib/transcript";
 import { analyzeExcelTemplate, describeTemplateForPrompt } from "@/lib/template-analysis";
 import { createAIProvider } from "@/lib/ai/factory";
 import { generateExcelOutput } from "@/lib/excel/generator";
+import { generateWordOutput } from "@/lib/word/generator";
 import type { DBJob, DBFile, DBTemplate, JobStatus, MoMData, TemplateStructure } from "@/types";
 import { v4 as uuidv4 } from "uuid";
 
@@ -138,18 +139,32 @@ export async function processJob(jobId: string): Promise<void> {
     const mappedJson = momData;
     await setJobStatus(jobId, "processing", { mapped_json: mappedJson as unknown as Record<string,unknown> });
 
-    // ── 8. Generate Excel ───────────────────────────────────────────────────
-    await logEvent(jobId, "processing", "Generating Excel output");
-    const excelBuffer = await generateExcelOutput(momData, templateStructure);
+    // ── 8. Generate output (Word if no template, Excel if template provided) ──
+    let outputBuffer: Buffer;
+    let outputFileName: string;
+    let outputMime: string;
+
+    if (!job.template_file_id) {
+      // No template → generate a professionally formatted Word document
+      await logEvent(jobId, "processing", "Generating Word document output");
+      outputBuffer = await generateWordOutput(momData);
+      outputFileName = `output_${jobId}.docx`;
+      outputMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    } else {
+      // Template provided → generate Excel output
+      await logEvent(jobId, "processing", "Generating Excel output");
+      outputBuffer = await generateExcelOutput(momData, templateStructure);
+      outputFileName = `output_${jobId}.xlsx`;
+      outputMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    }
 
     // ── 9. Upload output ────────────────────────────────────────────────────
-    const outputFileName = `output_${jobId}.xlsx`;
     const outputPath = `${job.user_id}/${outputFileName}`;
 
     await uploadFileToStorage(
-      excelBuffer,
+      outputBuffer,
       outputPath,
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      outputMime,
       "outputs"
     );
 
@@ -160,8 +175,8 @@ export async function processJob(jobId: string): Promise<void> {
       user_id: job.user_id,
       name: outputFileName,
       original_name: outputFileName,
-      mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      size_bytes: excelBuffer.byteLength,
+      mime_type: outputMime,
+      size_bytes: outputBuffer.byteLength,
       file_type: "output",
       storage_path: outputPath,
     });
