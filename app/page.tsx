@@ -64,7 +64,7 @@ export default function LandingPage() {
           <span className="text-blue-600"> polished MoM</span>
         </h1>
         <p className="mt-6 text-xl text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
-          Upload your transcript and Excel template. MoM Forge extracts decisions, action items, and
+          Upload your transcript and reference template. MoM Forge extracts decisions, action items, and
           discussion summaries — then maps them into your exact format.
         </p>
         <div className="mt-10 flex items-center justify-center gap-4">

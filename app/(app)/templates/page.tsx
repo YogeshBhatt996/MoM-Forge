@@ -1,8 +1,11 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { BookTemplate, Sheet, FileText, Trash2, Star, Upload, X, Loader2 } from "lucide-react";
+import { BookTemplate, Sheet, FileText, Star, Upload, X, Loader2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+
+const MAX_TEMPLATES = 5;
+const WARN_AT = 3; // show confirmation when going from 3 → 4
 
 interface TemplateRow {
   id: string;
@@ -20,12 +23,51 @@ function templateIcon(mimeType?: string) {
   return <FileText className="w-4 h-4 text-blue-600" />;
 }
 
+interface ConfirmDialogProps {
+  count: number;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function ConfirmDialog({ count, onConfirm, onCancel }: ConfirmDialogProps) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl p-6 max-w-md w-full mx-4 space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+            <AlertTriangle className="w-5 h-5 text-amber-600" />
+          </div>
+          <div>
+            <h2 className="font-bold text-gray-900 dark:text-white">Library getting full</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              You already have <span className="font-semibold text-gray-800 dark:text-gray-200">{count} templates</span>.
+              Adding more may make it harder to manage your library. Consider removing older or unused templates first.
+            </p>
+            <p className="text-sm text-gray-500 mt-2">
+              You can still upload this template, but your library is limited to {MAX_TEMPLATES} total.
+            </p>
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 pt-2">
+          <button onClick={onCancel} className="btn-secondary text-sm">
+            Cancel & review
+          </button>
+          <button onClick={onConfirm} className="btn-primary text-sm">
+            Upload anyway
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [settingDefaultId, setSettingDefaultId] = useState<string | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchTemplates = async () => {
@@ -37,12 +79,9 @@ export default function TemplatesPage() {
 
   useEffect(() => { fetchTemplates(); }, []);
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = "";
-
+  const doUpload = async (file: File) => {
     setUploading(true);
+    setPendingFile(null);
     try {
       const fd = new FormData();
       fd.append("file", file);
@@ -59,6 +98,25 @@ export default function TemplatesPage() {
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+
+    if (templates.length >= MAX_TEMPLATES) {
+      toast.error(`Maximum ${MAX_TEMPLATES} templates allowed. Please delete one first.`);
+      return;
+    }
+
+    if (templates.length >= WARN_AT) {
+      // Show confirmation dialog — user is uploading 4th or 5th
+      setPendingFile(file);
+      return;
+    }
+
+    doUpload(file);
   };
 
   const handleSetDefault = async (id: string, enable = true) => {
@@ -93,8 +151,19 @@ export default function TemplatesPage() {
     }
   };
 
+  const atLimit = templates.length >= MAX_TEMPLATES;
+
   return (
     <div className="space-y-6">
+      {/* Confirmation dialog */}
+      {pendingFile && (
+        <ConfirmDialog
+          count={templates.length}
+          onConfirm={() => doUpload(pendingFile)}
+          onCancel={() => setPendingFile(null)}
+        />
+      )}
+
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Template Library</h1>
@@ -102,18 +171,19 @@ export default function TemplatesPage() {
             Manage your MoM templates. Templates are saved when you upload one during job creation, or you can upload directly here.
           </p>
         </div>
-        <div>
+        <div className="flex flex-col items-end gap-1">
           <input
             ref={fileInputRef}
             type="file"
             accept=".xlsx,.docx,.pdf"
             className="hidden"
-            onChange={handleUpload}
+            onChange={handleFileSelect}
           />
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="btn-primary"
+            disabled={uploading || atLimit}
+            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+            title={atLimit ? `Maximum ${MAX_TEMPLATES} templates reached` : undefined}
           >
             {uploading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -122,8 +192,20 @@ export default function TemplatesPage() {
             )}
             Upload Template
           </button>
+          <p className="text-xs text-gray-400">
+            {templates.length} / {MAX_TEMPLATES} templates
+          </p>
         </div>
       </div>
+
+      {atLimit && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 px-4 py-3 flex items-center gap-3">
+          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+          <p className="text-sm text-amber-800 dark:text-amber-300">
+            Template limit reached ({MAX_TEMPLATES}/{MAX_TEMPLATES}). Delete an existing template to upload a new one.
+          </p>
+        </div>
+      )}
 
       {loading ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
