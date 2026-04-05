@@ -12,8 +12,8 @@ const DEMO_COOKIE = "demo_session";
 
 const createJobSchema = z.object({
   transcript_file_id: z.string().uuid(),
-  template_file_id: z.string().uuid(),
-  template_id: z.string().uuid().optional(),
+  template_file_id: z.string().uuid().nullable().optional(),
+  template_id: z.string().uuid().nullable().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
       id: jobId,
       userId: demoUser.id,
       transcriptFileId: parsed.data.transcript_file_id,
-      templateFileId: parsed.data.template_file_id,
+      templateFileId: parsed.data.template_file_id ?? null,
       templateId: parsed.data.template_id ?? null,
       status: "uploaded",
       errorMessage: null,
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
     id: jobId,
     user_id: user.id,
     transcript_file_id: parsed.data.transcript_file_id,
-    template_file_id: parsed.data.template_file_id,
+    template_file_id: parsed.data.template_file_id ?? null,
     template_id: parsed.data.template_id ?? null,
     status: "uploaded",
   });
