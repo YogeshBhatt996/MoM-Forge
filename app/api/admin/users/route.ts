@@ -34,7 +34,7 @@ export async function GET(_req: NextRequest) {
     created_at: u.created_at,
     last_sign_in_at: u.last_sign_in_at,
     confirmed: !!u.email_confirmed_at,
-    banned: u.banned ?? false,
+    banned: (u as { banned?: boolean }).banned ?? false,
     jobs: jobsByUser[u.id] ?? { total: 0, completed: 0, failed: 0 },
   }));
 
