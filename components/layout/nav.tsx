@@ -18,24 +18,52 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
-const navItems = [
+const baseNavItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/jobs", label: "Jobs", icon: FileText },
   { href: "/templates", label: "Templates", icon: BookTemplate },
   { href: "/settings", label: "Settings", icon: Settings },
-  { href: "/admin", label: "Admin", icon: ShieldCheck },
 ];
 
-export function Nav() {
+const adminNavItem = { href: "/admin", label: "Admin", icon: ShieldCheck };
+
+export function Nav({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const router = useRouter();
 
+  const navItems = isAdmin ? [...baseNavItems, adminNavItem] : baseNavItems;
+
   const handleSignOut = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/login");
+  };
+
+  const NavLink = ({ href, label, icon: Icon, onClick }: {
+    href: string; label: string; icon: React.ElementType; onClick?: () => void;
+  }) => {
+    const active = pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
+    return (
+      <Link
+        href={href}
+        onClick={onClick}
+        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+          active
+            ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+            : "text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+        }`}
+      >
+        <Icon className="w-4 h-4" />
+        {label}
+        {href === "/admin" && (
+          <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400">
+            ADMIN
+          </span>
+        )}
+      </Link>
+    );
   };
 
   return (
@@ -47,23 +75,9 @@ export function Nav() {
           <span className="font-bold text-lg tracking-tight">MoM Forge</span>
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1">
-          {navItems.map(({ href, label, icon: Icon }) => {
-            const active = pathname.startsWith(href);
-            return (
-              <Link
-                key={href}
-                href={href}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  active
-                    ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-                    : "text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                {label}
-              </Link>
-            );
-          })}
+          {navItems.map((item) => (
+            <NavLink key={item.href} {...item} />
+          ))}
         </nav>
         <div className="px-3 pb-4 space-y-2 border-t pt-4">
           <button
@@ -105,24 +119,9 @@ export function Nav() {
               <span className="font-bold text-lg">MoM Forge</span>
             </div>
             <nav className="flex-1 px-3 py-4 space-y-1">
-              {navItems.map(({ href, label, icon: Icon }) => {
-                const active = pathname.startsWith(href);
-                return (
-                  <Link
-                    key={href}
-                    href={href}
-                    onClick={() => setMobileOpen(false)}
-                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                      active
-                        ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-                        : "text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {label}
-                  </Link>
-                );
-              })}
+              {navItems.map((item) => (
+                <NavLink key={item.href} {...item} onClick={() => setMobileOpen(false)} />
+              ))}
             </nav>
           </aside>
         </div>
