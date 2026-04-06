@@ -33,14 +33,31 @@ export default function RegisterPage() {
         return;
       }
       const supabase = createClient();
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: { data: { full_name: name } },
       });
-      if (error) { toast.error(error.message); return; }
-      toast.success("Account created! Check your email to confirm.");
-      router.push("/dashboard");
+      if (error) {
+        // Friendly messages for the two most common Supabase auth errors
+        if (error.message.toLowerCase().includes("rate limit")) {
+          toast.error("Too many sign-up attempts. Please wait a few minutes and try again.");
+        } else if (error.message.toLowerCase().includes("invalid")) {
+          toast.error("This email address could not be accepted. Please use a different email.");
+        } else {
+          toast.error(error.message);
+        }
+        return;
+      }
+      // If a session is returned immediately, email confirmation is disabled — go straight to dashboard
+      if (data.session) {
+        toast.success("Account created! Welcome to MoM Forge.");
+        router.push("/dashboard");
+      } else {
+        // Email confirmation is enabled — ask user to verify
+        toast.success("Account created! Please check your email to confirm before signing in.");
+        router.push("/login");
+      }
     } catch {
       toast.error("Could not connect to auth service. Please check your configuration.");
     } finally {
@@ -74,14 +91,14 @@ export default function RegisterPage() {
               />
             </div>
             <div>
-              <label className="label">Work email</label>
+              <label className="label">Email address</label>
               <input
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="input"
-                placeholder="you@company.com"
+                placeholder="you@example.com"
               />
             </div>
             <div>
