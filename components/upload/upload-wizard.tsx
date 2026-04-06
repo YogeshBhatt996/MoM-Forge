@@ -249,7 +249,7 @@ export function UploadWizard() {
     );
   }
 
-  const noTemplate = !useDefault && !files.template;
+  const noTemplate = templateChoice === "none" && !files.template;
 
   return (
     <div className="space-y-5">
