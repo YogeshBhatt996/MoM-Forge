@@ -358,7 +358,6 @@
       <a href="#poc">POC</a>
       <a href="#does">Capabilities</a>
       <a href="#stack">Tech Stack</a>
-      <a href="#deploy">Deployment</a>
       <a href="#nextphase">Next Phase</a>
     </div>
     <span class="nav-badge">POC · 2026</span>
@@ -378,7 +377,7 @@
     </p>
     <div class="hero-stats">
       <div class="hero-stat">
-        <div class="num">&lt; 30s</div>
+        <div class="num">&lt; 1 min</div>
         <div class="lbl">Avg. generation time</div>
       </div>
       <div class="hero-stat">
@@ -485,7 +484,7 @@
         <h3>✅ With MoM Forge</h3>
         <div class="issue-item">
           <div class="dot dot-green">✓</div>
-          <p>Full MoM generated in <strong>under 30 seconds</strong> from a transcript</p>
+          <p>Full MoM generated in <strong>under 1 minute</strong> from a transcript</p>
         </div>
         <div class="issue-item">
           <div class="dot dot-green">✓</div>
@@ -985,99 +984,6 @@
 </section>
 
 <!-- ════════════════════════════════════════════════
-     DEPLOYMENT
-════════════════════════════════════════════════ -->
-<section id="deploy">
-  <div class="container">
-    <div class="section-header">
-      <div class="tag">Production</div>
-      <h2>Deployed in Production</h2>
-      <p>MoM Forge is live and running in a fully production-grade environment.</p>
-    </div>
-
-    <div class="deploy-row" style="margin-bottom:1.25rem;">
-      <div class="deploy-card">
-        <div class="dc-label">Environment</div>
-        <div class="dc-value"><span class="status-dot"></span>Production · Live</div>
-        <div class="dc-sub">Vercel serverless · Global CDN</div>
-      </div>
-      <div class="deploy-card">
-        <div class="dc-label">Hosting Platform</div>
-        <div class="dc-value">Vercel</div>
-        <div class="dc-sub">Auto-deploy on push to main</div>
-      </div>
-      <div class="deploy-card">
-        <div class="dc-label">Source Control</div>
-        <div class="dc-value">GitHub</div>
-        <div class="dc-sub">YogeshBhatt996 / MoM-Forge</div>
-      </div>
-      <div class="deploy-card">
-        <div class="dc-label">Database</div>
-        <div class="dc-value">Supabase PostgreSQL</div>
-        <div class="dc-sub">Cloud-hosted · RLS enforced</div>
-      </div>
-    </div>
-
-    <div class="deploy-row">
-      <div class="deploy-card">
-        <div class="dc-label">AI Provider</div>
-        <div class="dc-value">Google Gemini 2.5 Flash</div>
-        <div class="dc-sub">REST API via GEMINI_API_KEY</div>
-      </div>
-      <div class="deploy-card">
-        <div class="dc-label">File Storage</div>
-        <div class="dc-value">Supabase Storage</div>
-        <div class="dc-sub">S3-compatible · Signed URLs</div>
-      </div>
-      <div class="deploy-card">
-        <div class="dc-label">Authentication</div>
-        <div class="dc-value">Supabase Auth</div>
-        <div class="dc-sub">Any email domain · No confirmation</div>
-      </div>
-      <div class="deploy-card">
-        <div class="dc-label">Framework</div>
-        <div class="dc-value">Next.js 15</div>
-        <div class="dc-sub">App Router · TypeScript · Tailwind</div>
-      </div>
-    </div>
-
-    <div style="margin-top:2.5rem;">
-      <div class="card" style="background:linear-gradient(135deg,#0A2342,#1E40AF);border:none;color:white;">
-        <h3 style="color:white;margin-bottom:1.25rem;">Database Schema Overview</h3>
-        <div class="grid-3">
-          <div>
-            <div style="font-size:0.7rem;font-weight:700;letter-spacing:0.08em;color:rgba(255,255,255,0.4);margin-bottom:0.5rem;">CORE TABLES</div>
-            <div style="font-size:0.82rem;color:rgba(255,255,255,0.8);line-height:2;">
-              📋 <strong style="color:white">jobs</strong> — pipeline records<br/>
-              📄 <strong style="color:white">files</strong> — transcripts, templates, outputs<br/>
-              🎯 <strong style="color:white">outputs</strong> — generated file references<br/>
-              📊 <strong style="color:white">templates</strong> — user template library
-            </div>
-          </div>
-          <div>
-            <div style="font-size:0.7rem;font-weight:700;letter-spacing:0.08em;color:rgba(255,255,255,0.4);margin-bottom:0.5rem;">AUDIT & CONFIG</div>
-            <div style="font-size:0.82rem;color:rgba(255,255,255,0.8);line-height:2;">
-              🔖 <strong style="color:white">job_events</strong> — pipeline event log<br/>
-              🤖 <strong style="color:white">prompt_versions</strong> — AI prompt management<br/>
-              👤 <strong style="color:white">auth.users</strong> — Supabase managed auth
-            </div>
-          </div>
-          <div>
-            <div style="font-size:0.7rem;font-weight:700;letter-spacing:0.08em;color:rgba(255,255,255,0.4);margin-bottom:0.5rem;">SECURITY</div>
-            <div style="font-size:0.82rem;color:rgba(255,255,255,0.8);line-height:2;">
-              🔒 Row-Level Security on all tables<br/>
-              🛡️ Service role for admin operations<br/>
-              🔑 JWT-based session cookies<br/>
-              👑 ADMIN_EMAILS env-var gating
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ════════════════════════════════════════════════
      NEXT PHASE
 ════════════════════════════════════════════════ -->
 <section id="nextphase">
@@ -1239,7 +1145,7 @@
       <strong>MoM Forge</strong> — AI-Powered Meeting Minutes Generator
     </p>
     <p>
-      POC built by <strong>Kaizen</strong> · Stack: Next.js · Gemini AI · Supabase · Vercel ·
+      POC built by <strong>Yogesh Bhatt</strong> · Stack: Next.js · Gemini AI · Supabase · Vercel ·
       <span style="color:rgba(255,255,255,0.3);">2026</span>
     </p>
     <p style="margin-top:0.75rem;font-size:0.75rem;color:rgba(255,255,255,0.25);">
