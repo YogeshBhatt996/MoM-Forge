@@ -26,6 +26,7 @@ export default function LoginPage() {
       const supabase = createClient();
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) { toast.error(error.message); return; }
+      router.refresh();
       router.push("/dashboard");
     } catch {
       toast.error("Could not connect to auth service. Please check your configuration.");

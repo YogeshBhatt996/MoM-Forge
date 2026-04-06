@@ -52,6 +52,7 @@ export default function RegisterPage() {
       // If a session is returned immediately, email confirmation is disabled — go straight to dashboard
       if (data.session) {
         toast.success("Account created! Welcome to MoM Forge.");
+        router.refresh();
         router.push("/dashboard");
       } else {
         // Email confirmation is enabled — ask user to verify
