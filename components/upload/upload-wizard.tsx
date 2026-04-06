@@ -114,7 +114,8 @@ export function UploadWizard() {
   const [step, setStep] = useState<Step>("files");
   const [jobId, setJobId] = useState<string | null>(null);
   const [defaultTemplate, setDefaultTemplate] = useState<DefaultTemplate | null>(null);
-  const [useDefault, setUseDefault] = useState(false);
+  // "default" | "upload" | "none"
+  const [templateChoice, setTemplateChoice] = useState<"default" | "upload" | "none">("none");
 
   // New: meeting date (above transcript) and title (below transcript)
   const [meetingDate, setMeetingDate] = useState("");
@@ -130,7 +131,7 @@ export function UploadWizard() {
         const def = (templates ?? []).find((t: { is_default?: boolean }) => t.is_default);
         if (def) {
           setDefaultTemplate(def as DefaultTemplate);
-          setUseDefault(true);
+          setTemplateChoice("default"); // auto-select default if one exists
         }
       })
       .catch(() => {/* ignore */});
@@ -161,11 +162,12 @@ export function UploadWizard() {
       const fd = new FormData();
       fd.append("transcript", files.transcript);
 
-      if (useDefault && defaultTemplate) {
+      if (templateChoice === "default" && defaultTemplate) {
         fd.append("existing_template_id", defaultTemplate.id);
-      } else if (files.template) {
+      } else if (templateChoice === "upload" && files.template) {
         fd.append("template", files.template);
       }
+      // "none" → Word doc auto-generated
 
       const uploadRes = await fetch("/api/upload", { method: "POST", body: fd });
       if (!uploadRes.ok) {
@@ -201,7 +203,7 @@ export function UploadWizard() {
       toast.error(err instanceof Error ? err.message : "Something went wrong");
       setStep("files");
     }
-  }, [files, useDefault, defaultTemplate, meetingTitle, meetingDate]);
+  }, [files, templateChoice, defaultTemplate, meetingTitle, meetingDate]);
 
   if (step === "done" && jobId) {
     return (
@@ -221,6 +223,7 @@ export function UploadWizard() {
               setMeetingTitle("");
               setMeetingDate("");
               setTitleSuggestions([]);
+              setTemplateChoice(defaultTemplate ? "default" : "none");
             }}
             className="btn-secondary"
           >
@@ -352,52 +355,112 @@ export function UploadWizard() {
 
         {/* Template column */}
         <div>
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <p className="label">MoM Template</p>
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">Optional</span>
-            </div>
-            {defaultTemplate && (
-              <button
-                type="button"
-                onClick={() => { setUseDefault((v) => !v); if (!useDefault) setFiles((s) => ({ ...s, template: null })); }}
-                className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition
-                  ${useDefault ? "bg-blue-600 text-white border-blue-600" : "text-blue-600 border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20"}`}
-              >
-                <Star className="w-3 h-3" /> Use default
-              </button>
-            )}
+          <div className="flex items-center gap-2 mb-2">
+            <p className="label">MoM Template</p>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">Optional</span>
           </div>
 
-          {useDefault && defaultTemplate ? (
-            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-blue-400 bg-blue-50 dark:bg-blue-950/30 p-6 gap-2">
-              <Star className="w-7 h-7 text-blue-500" />
-              <p className="text-sm font-medium text-gray-800 dark:text-gray-200 text-center">{defaultTemplate.name}</p>
-              {defaultTemplate.file && <p className="text-xs text-gray-500">{defaultTemplate.file.original_name}</p>}
-              <p className="text-xs text-blue-500">Default template selected</p>
-            </div>
-          ) : (
-            <FileDrop
-              label="Upload template (.xlsx, .docx, .pdf)"
-              accept={{
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
-                "application/pdf": [".pdf"],
+          <div className="space-y-2">
+            {/* ── Option 1: Use Default Template ── */}
+            <button
+              type="button"
+              disabled={!defaultTemplate}
+              onClick={() => {
+                if (!defaultTemplate) return;
+                setTemplateChoice((c) => c === "default" ? "none" : "default");
+                setFiles((s) => ({ ...s, template: null }));
               }}
-              file={files.template}
-              onDrop={(f) => setFiles((s) => ({ ...s, template: f }))}
-              onClear={() => setFiles((s) => ({ ...s, template: null }))}
-              icon={Sheet}
-              optional
-            />
-          )}
+              className={`w-full text-left rounded-xl border-2 px-4 py-3 transition-all
+                ${!defaultTemplate
+                  ? "border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/30 opacity-50 cursor-not-allowed"
+                  : templateChoice === "default"
+                    ? "border-blue-500 bg-blue-50 dark:bg-blue-950/40 shadow-sm"
+                    : "border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700 bg-white dark:bg-gray-900"
+                }`}
+            >
+              <div className="flex items-center gap-3">
+                {/* Radio indicator */}
+                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors
+                  ${!defaultTemplate
+                    ? "border-gray-300 dark:border-gray-700"
+                    : templateChoice === "default"
+                      ? "border-blue-600 bg-blue-600"
+                      : "border-gray-300 dark:border-gray-600"
+                  }`}>
+                  {templateChoice === "default" && defaultTemplate && (
+                    <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                  )}
+                </div>
+                <Star className={`w-4 h-4 shrink-0 ${!defaultTemplate ? "text-gray-300 dark:text-gray-700" : templateChoice === "default" ? "text-blue-500" : "text-gray-400"}`} />
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-semibold ${!defaultTemplate ? "text-gray-400 dark:text-gray-600" : "text-gray-900 dark:text-white"}`}>
+                    Use Default Template
+                  </p>
+                  {defaultTemplate ? (
+                    <p className="text-xs text-gray-500 truncate">{defaultTemplate.name}{defaultTemplate.file ? ` · ${defaultTemplate.file.original_name}` : ""}</p>
+                  ) : (
+                    <p className="text-xs text-gray-400">No default set — go to Template Library to set one</p>
+                  )}
+                </div>
+              </div>
+            </button>
 
-          {noTemplate && !defaultTemplate && (
-            <p className="mt-2 flex items-center gap-1.5 text-xs text-gray-400">
-              <Upload className="w-3 h-3 shrink-0" />
-              No template? A formatted Word document will be generated for you.
-            </p>
-          )}
+            {/* ── Option 2: Upload Template ── */}
+            <div
+              className={`rounded-xl border-2 transition-all
+                ${templateChoice === "upload"
+                  ? "border-blue-500 bg-blue-50 dark:bg-blue-950/40 shadow-sm"
+                  : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
+                }`}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setTemplateChoice((c) => c === "upload" ? "none" : "upload");
+                }}
+                className="w-full text-left px-4 pt-3 pb-2"
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors
+                    ${templateChoice === "upload" ? "border-blue-600 bg-blue-600" : "border-gray-300 dark:border-gray-600"}`}>
+                    {templateChoice === "upload" && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </div>
+                  <Upload className={`w-4 h-4 shrink-0 ${templateChoice === "upload" ? "text-blue-500" : "text-gray-400"}`} />
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white">Upload Template</p>
+                    <p className="text-xs text-gray-500">Use a one-off .xlsx, .docx or .pdf file</p>
+                  </div>
+                </div>
+              </button>
+
+              {/* File drop zone — only shown when this option is selected */}
+              {templateChoice === "upload" && (
+                <div className="px-3 pb-3">
+                  <FileDrop
+                    label="Upload template (.xlsx, .docx, .pdf)"
+                    accept={{
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+                      "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+                      "application/pdf": [".pdf"],
+                    }}
+                    file={files.template}
+                    onDrop={(f) => setFiles((s) => ({ ...s, template: f }))}
+                    onClear={() => setFiles((s) => ({ ...s, template: null }))}
+                    icon={Sheet}
+                    optional
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* No-template hint */}
+            {templateChoice === "none" && (
+              <p className="flex items-center gap-1.5 text-xs text-gray-400 px-1">
+                <Upload className="w-3 h-3 shrink-0" />
+                No template selected — a professionally formatted Word document will be generated.
+              </p>
+            )}
+          </div>
         </div>
       </div>
 
