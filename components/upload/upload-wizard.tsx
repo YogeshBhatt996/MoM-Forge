@@ -3,7 +3,7 @@ import { useState, useCallback, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
 import {
   FileText, Sheet, X, ArrowRight, Loader2, CheckCircle2,
-  Star, Info, Upload,
+  Star, Info, Upload, Calendar, Tag, Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -21,14 +21,40 @@ interface DefaultTemplate {
   file: { original_name: string } | null;
 }
 
+// ── Generate 2-3 title suggestions from a transcript filename ──────────────
+function buildSuggestions(filename: string): string[] {
+  const base = filename
+    .replace(/\.(txt|pdf|docx)$/i, "")
+    .replace(/[_\-\.]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const toTitle = (s: string) =>
+    s.replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const full = toTitle(base);
+  const words = full.split(" ").filter(Boolean);
+
+  const suggestions: string[] = [full];
+
+  // Variant: first 4 words
+  if (words.length > 4) {
+    suggestions.push(words.slice(0, 4).join(" "));
+  }
+
+  // Variant: strip trailing year/number (e.g. "Q1 2026")
+  const stripped = words
+    .filter((w, i) => !(i >= words.length - 2 && /^\d{1,4}$/.test(w)))
+    .join(" ");
+  if (stripped && stripped !== full && stripped !== suggestions[1]) {
+    suggestions.push(stripped);
+  }
+
+  return [...new Set(suggestions)].filter((s) => s.length > 0).slice(0, 3);
+}
+
 function FileDrop({
-  label,
-  accept,
-  file,
-  onDrop,
-  onClear,
-  icon: Icon,
-  optional,
+  label, accept, file, onDrop, onClear, icon: Icon, optional,
 }: {
   label: string;
   accept: Record<string, string[]>;
@@ -89,6 +115,12 @@ export function UploadWizard() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [defaultTemplate, setDefaultTemplate] = useState<DefaultTemplate | null>(null);
   const [useDefault, setUseDefault] = useState(false);
+
+  // New: meeting date (above transcript) and title (below transcript)
+  const [meetingDate, setMeetingDate] = useState("");
+  const [meetingTitle, setMeetingTitle] = useState("");
+  const [titleSuggestions, setTitleSuggestions] = useState<string[]>([]);
+
   const router = useRouter();
 
   useEffect(() => {
@@ -103,6 +135,19 @@ export function UploadWizard() {
       })
       .catch(() => {/* ignore */});
   }, []);
+
+  // When transcript file changes, generate suggestions from filename
+  useEffect(() => {
+    if (files.transcript) {
+      const suggestions = buildSuggestions(files.transcript.name);
+      setTitleSuggestions(suggestions);
+      // Auto-fill with first suggestion if field is empty
+      if (!meetingTitle) setMeetingTitle(suggestions[0] ?? "");
+    } else {
+      setTitleSuggestions([]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files.transcript]);
 
   const handleSubmit = useCallback(async () => {
     if (!files.transcript) {
@@ -121,7 +166,6 @@ export function UploadWizard() {
       } else if (files.template) {
         fd.append("template", files.template);
       }
-      // No template at all → Word doc will be generated automatically
 
       const uploadRes = await fetch("/api/upload", { method: "POST", body: fd });
       if (!uploadRes.ok) {
@@ -133,7 +177,13 @@ export function UploadWizard() {
       const jobRes = await fetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript_file_id, template_file_id, template_id }),
+        body: JSON.stringify({
+          transcript_file_id,
+          template_file_id,
+          template_id,
+          meeting_title_hint: meetingTitle.trim() || null,
+          meeting_date_hint: meetingDate || null,
+        }),
       });
       if (!jobRes.ok) throw new Error("Failed to create job");
       const { job_id } = await jobRes.json();
@@ -151,7 +201,7 @@ export function UploadWizard() {
       toast.error(err instanceof Error ? err.message : "Something went wrong");
       setStep("files");
     }
-  }, [files, useDefault, defaultTemplate]);
+  }, [files, useDefault, defaultTemplate, meetingTitle, meetingDate]);
 
   if (step === "done" && jobId) {
     return (
@@ -164,7 +214,14 @@ export function UploadWizard() {
         <div className="flex gap-3">
           <button onClick={() => router.push(`/jobs/${jobId}`)} className="btn-primary">View & Download</button>
           <button
-            onClick={() => { setFiles({ transcript: null, template: null }); setJobId(null); setStep("files"); }}
+            onClick={() => {
+              setFiles({ transcript: null, template: null });
+              setJobId(null);
+              setStep("files");
+              setMeetingTitle("");
+              setMeetingDate("");
+              setTitleSuggestions([]);
+            }}
             className="btn-secondary"
           >
             New Job
@@ -180,7 +237,7 @@ export function UploadWizard() {
         <Loader2 className="w-12 h-12 text-blue-600 animate-spin" />
         <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Processing your transcript…</h2>
         <p className="text-sm text-gray-500 text-center max-w-xs">
-          AI is extracting and structuring your meeting minutes. This usually takes 15–45 seconds.
+          AI is extracting and structuring your meeting minutes. This usually takes under a minute.
         </p>
         <div className="w-full max-w-sm bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
           <div className="bg-blue-600 h-1.5 rounded-full animate-pulse w-3/4" />
@@ -201,8 +258,29 @@ export function UploadWizard() {
         </p>
       </div>
 
+      {/* ── Meeting Date ── ABOVE transcript ── */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <Calendar className="w-4 h-4 text-gray-400" />
+          <p className="label">Meeting Date</p>
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">Optional</span>
+        </div>
+        <input
+          type="date"
+          min="2026-01-01"
+          value={meetingDate}
+          onChange={(e) => setMeetingDate(e.target.value)}
+          className="input w-full sm:w-56"
+          placeholder="Select meeting date"
+        />
+        <p className="text-xs text-gray-400 mt-1">
+          Select the date the meeting took place. If left blank, today&apos;s date or the date from the transcript will be used.
+        </p>
+      </div>
+
+      {/* ── Upload row ── */}
       <div className="grid sm:grid-cols-2 gap-4">
-        {/* Transcript */}
+        {/* Transcript column */}
         <div>
           <div className="flex items-center gap-2 mb-2">
             <p className="label">Meeting Transcript</p>
@@ -217,12 +295,62 @@ export function UploadWizard() {
             }}
             file={files.transcript}
             onDrop={(f) => setFiles((s) => ({ ...s, transcript: f }))}
-            onClear={() => setFiles((s) => ({ ...s, transcript: null }))}
+            onClear={() => {
+              setFiles((s) => ({ ...s, transcript: null }));
+              setMeetingTitle("");
+              setTitleSuggestions([]);
+            }}
             icon={FileText}
           />
+
+          {/* ── Meeting Title ── BELOW transcript drop zone ── */}
+          <div className="mt-3">
+            <div className="flex items-center gap-2 mb-1.5">
+              <Tag className="w-3.5 h-3.5 text-gray-400" />
+              <p className="text-xs font-medium text-gray-600 dark:text-gray-400">Meeting Title</p>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded-full">Optional</span>
+            </div>
+            <input
+              type="text"
+              value={meetingTitle}
+              onChange={(e) => setMeetingTitle(e.target.value)}
+              placeholder="e.g. Q1 Strategy Review"
+              className="input w-full text-sm"
+              maxLength={200}
+            />
+
+            {/* Auto-suggestions */}
+            {titleSuggestions.length > 0 && (
+              <div className="mt-2">
+                <div className="flex items-center gap-1 mb-1.5">
+                  <Sparkles className="w-3 h-3 text-blue-400" />
+                  <p className="text-[10px] text-gray-400 font-medium">Suggestions based on filename:</p>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {titleSuggestions.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setMeetingTitle(s)}
+                      className={`text-xs px-2.5 py-1 rounded-full border transition-colors
+                        ${meetingTitle === s
+                          ? "bg-blue-600 text-white border-blue-600"
+                          : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-blue-400 hover:text-blue-600"
+                        }`}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!files.transcript && (
+              <p className="text-[11px] text-gray-400 mt-1.5">Upload a transcript to see title suggestions.</p>
+            )}
+          </div>
         </div>
 
-        {/* Template */}
+        {/* Template column */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
@@ -264,7 +392,6 @@ export function UploadWizard() {
             />
           )}
 
-          {/* No-template hint */}
           {noTemplate && !defaultTemplate && (
             <p className="mt-2 flex items-center gap-1.5 text-xs text-gray-400">
               <Upload className="w-3 h-3 shrink-0" />
@@ -274,14 +401,26 @@ export function UploadWizard() {
         </div>
       </div>
 
-      <div className="flex justify-end">
-        <button
-          onClick={handleSubmit}
-          disabled={!files.transcript}
-          className="btn-primary"
-        >
-          Generate MoM <ArrowRight className="w-4 h-4" />
-        </button>
+      <div className="flex items-center justify-between">
+        {/* Output name preview */}
+        {(meetingTitle || meetingDate) && (
+          <p className="text-xs text-gray-400 flex items-center gap-1.5">
+            <FileText className="w-3 h-3 shrink-0" />
+            Output:{" "}
+            <span className="font-medium text-gray-600 dark:text-gray-300">
+              MoM_{(meetingTitle || "Meeting").replace(/\s+/g, "_")}_{meetingDate || "date"}.{noTemplate ? "docx" : "xlsx"}
+            </span>
+          </p>
+        )}
+        <div className="ml-auto">
+          <button
+            onClick={handleSubmit}
+            disabled={!files.transcript}
+            className="btn-primary"
+          >
+            Generate MoM <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </div>
   );

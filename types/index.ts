@@ -59,6 +59,8 @@ export interface DBJob {
   ai_raw_json: MoMData | null;
   mapped_json: Record<string, unknown> | null;
   retry_count: number;
+  meeting_title_hint: string | null;
+  meeting_date_hint: string | null;
   created_at: string;
   updated_at: string;
 }

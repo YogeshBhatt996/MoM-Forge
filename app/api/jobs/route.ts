@@ -14,6 +14,8 @@ const createJobSchema = z.object({
   transcript_file_id: z.string().uuid(),
   template_file_id: z.string().uuid().nullable().optional(),
   template_id: z.string().uuid().nullable().optional(),
+  meeting_title_hint: z.string().max(200).nullable().optional(),
+  meeting_date_hint: z.string().max(20).nullable().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -58,6 +60,8 @@ export async function POST(req: NextRequest) {
     transcript_file_id: parsed.data.transcript_file_id,
     template_file_id: parsed.data.template_file_id ?? null,
     template_id: parsed.data.template_id ?? null,
+    meeting_title_hint: parsed.data.meeting_title_hint ?? null,
+    meeting_date_hint: parsed.data.meeting_date_hint ?? null,
     status: "uploaded",
   });
 

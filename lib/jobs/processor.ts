@@ -139,26 +139,47 @@ export async function processJob(jobId: string): Promise<void> {
     const mappedJson = momData;
     await setJobStatus(jobId, "processing", { mapped_json: mappedJson as unknown as Record<string,unknown> });
 
-    // ── 8. Generate output (Word if no template, Excel if template provided) ──
+    // ── 8. Build output filename: MoM_<Title>_<Date>.<ext> ────────────────────
+    const rawTitle =
+      job.meeting_title_hint ||
+      momData.meeting_title ||
+      transcriptFile?.original_name?.replace(/\.(txt|pdf|docx)$/i, "").replace(/[_\-]+/g, " ").trim() ||
+      "Meeting";
+
+    const rawDate =
+      job.meeting_date_hint ||
+      momData.meeting_date ||
+      new Date().toISOString().split("T")[0];
+
+    const safeTitle = rawTitle
+      .replace(/[^a-zA-Z0-9\s\-]/g, "")
+      .trim()
+      .replace(/\s+/g, "_")
+      .substring(0, 60);
+
+    const safeDate = rawDate
+      .replace(/[^0-9\-\/]/g, "")
+      .replace(/\//g, "-")
+      .substring(0, 10);
+
+    // ── 9. Generate output (Word if no template, Excel if template provided) ──
     let outputBuffer: Buffer;
     let outputFileName: string;
     let outputMime: string;
 
     if (!job.template_file_id) {
-      // No template → generate a professionally formatted Word document
       await logEvent(jobId, "processing", "Generating Word document output");
       outputBuffer = await generateWordOutput(momData);
-      outputFileName = `output_${jobId}.docx`;
+      outputFileName = `MoM_${safeTitle}_${safeDate}.docx`;
       outputMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     } else {
-      // Template provided → generate Excel output
       await logEvent(jobId, "processing", "Generating Excel output");
       outputBuffer = await generateExcelOutput(momData, templateStructure);
-      outputFileName = `output_${jobId}.xlsx`;
+      outputFileName = `MoM_${safeTitle}_${safeDate}.xlsx`;
       outputMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     }
 
-    // ── 9. Upload output ────────────────────────────────────────────────────
+    // ── 10. Upload output ───────────────────────────────────────────────────
     const outputPath = `${job.user_id}/${outputFileName}`;
 
     await uploadFileToStorage(
@@ -187,7 +208,7 @@ export async function processJob(jobId: string): Promise<void> {
       file_id: outputFileId,
     });
 
-    // ── 10. Mark complete ───────────────────────────────────────────────────
+    // ── 11. Mark complete ───────────────────────────────────────────────────
     await setJobStatus(jobId, "completed");
     await logEvent(jobId, "completed", "Pipeline completed successfully");
   } catch (err) {

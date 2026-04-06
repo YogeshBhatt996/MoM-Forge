@@ -207,6 +207,76 @@ export default function TemplatesPage() {
         </div>
       )}
 
+      {/* ── Default Template Selector ─────────────────────────────────────── */}
+      {!loading && templates.length > 0 && (() => {
+        const current = templates.find((t) => t.is_default);
+        return (
+          <div className="rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/30 p-4">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center shrink-0">
+                  <Star className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white">Active Default Template</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Automatically pre-selected when you generate a new MoM on the Dashboard.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 flex-wrap">
+                {/* Current default display */}
+                {current ? (
+                  <div className="flex items-center gap-2 bg-white dark:bg-gray-900 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2">
+                    {templateIcon(current.file?.mime_type)}
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white leading-none">{current.name}</p>
+                      {current.file && (
+                        <p className="text-[10px] text-gray-400 mt-0.5">{current.file.original_name}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleSetDefault(current.id, false)}
+                      disabled={settingDefaultId === current.id}
+                      className="ml-1 rounded-full p-0.5 text-gray-400 hover:text-red-500 transition"
+                      title="Remove default"
+                    >
+                      {settingDefaultId === current.id
+                        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        : <X className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-xs text-gray-400 italic">No default set</span>
+                )}
+
+                {/* Dropdown to change default */}
+                <div className="relative">
+                  <select
+                    className="input text-sm pr-8 py-2 cursor-pointer"
+                    value={current?.id ?? ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val) handleSetDefault(val, true);
+                    }}
+                    disabled={!!settingDefaultId}
+                  >
+                    <option value="">— Change default —</option>
+                    {templates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}{t.is_default ? " ★" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Template Cards ────────────────────────────────────────────────── */}
       {loading ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3].map((i) => (
@@ -254,7 +324,7 @@ export default function TemplatesPage() {
               <p className="text-xs text-gray-400 mt-1">
                 Added {formatDistanceToNow(new Date(tmpl.created_at), { addSuffix: true })}
               </p>
-              {!tmpl.is_default && (
+              {!tmpl.is_default ? (
                 <button
                   onClick={() => handleSetDefault(tmpl.id)}
                   disabled={settingDefaultId === tmpl.id}
@@ -267,8 +337,7 @@ export default function TemplatesPage() {
                   )}
                   Set as default
                 </button>
-              )}
-              {tmpl.is_default && (
+              ) : (
                 <button
                   onClick={() => handleSetDefault(tmpl.id, false)}
                   disabled={settingDefaultId === tmpl.id}
