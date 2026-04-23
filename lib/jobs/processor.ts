@@ -211,11 +211,67 @@ export async function processJob(jobId: string): Promise<void> {
     // ── 11. Mark complete ───────────────────────────────────────────────────
     await setJobStatus(jobId, "completed");
     await logEvent(jobId, "completed", "Pipeline completed successfully");
+
+    // ── 12. Prune storage — keep only the 20 most recent output files ───────
+    await pruneOldOutputs(job.user_id).catch((e) =>
+      console.warn("[pruneOldOutputs] Non-fatal cleanup error:", e)
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await setJobStatus(jobId, "failed", { error_message: message });
     await logEvent(jobId, "failed", `Pipeline failed: ${message}`);
     throw err;
+  }
+}
+
+// ─── Storage pruning ─────────────────────────────────────────────────────────
+/**
+ * Deletes output files from storage for jobs beyond the 20 most recent
+ * completed jobs per user. DB records are preserved for audit history.
+ */
+async function pruneOldOutputs(userId: string, keepCount = 20): Promise<void> {
+  const supabase = createServiceClient();
+  const OUTPUTS_BUCKET = process.env.SUPABASE_BUCKET_OUTPUTS ?? "outputs";
+
+  // All completed jobs for this user, newest first
+  const { data: jobs } = await supabase
+    .from("jobs")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("status", "completed")
+    .order("created_at", { ascending: false });
+
+  if (!jobs || jobs.length <= keepCount) return;
+
+  const oldJobIds = jobs.slice(keepCount).map((j) => j.id);
+
+  // Find output file IDs for the old jobs
+  const { data: outputs } = await supabase
+    .from("outputs")
+    .select("file_id")
+    .in("job_id", oldJobIds);
+
+  if (!outputs?.length) return;
+
+  const fileIds = outputs.map((o) => o.file_id).filter(Boolean);
+
+  // Get their storage paths
+  const { data: files } = await supabase
+    .from("files")
+    .select("storage_path")
+    .in("id", fileIds);
+
+  const paths = (files ?? [])
+    .map((f) => f.storage_path)
+    .filter((p): p is string => !!p);
+
+  if (paths.length === 0) return;
+
+  const { error } = await supabase.storage.from(OUTPUTS_BUCKET).remove(paths);
+  if (error) {
+    console.warn("[pruneOldOutputs] Storage remove error:", error.message);
+  } else {
+    console.log(`[pruneOldOutputs] Removed ${paths.length} old output file(s) from storage.`);
   }
 }
 

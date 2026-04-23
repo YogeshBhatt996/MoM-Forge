@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { Nav } from "@/components/layout/nav";
 import { isAdminEmail } from "@/lib/admin/is-admin";
+import { InactivityGuard } from "@/components/layout/inactivity-guard";
 
 const DEMO_COOKIE = "demo_session";
 
@@ -43,6 +44,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <div className="max-w-5xl mx-auto">{children}</div>
         </div>
       </main>
+      {/* Auto-logout after 60 min of inactivity (client-side only, skipped in demo) */}
+      {!isDemo && <InactivityGuard />}
     </div>
   );
 }

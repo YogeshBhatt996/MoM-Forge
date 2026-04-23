@@ -16,7 +16,7 @@ export async function uploadFileToStorage(
     .from(bucketName)
     .upload(path, buffer, {
       contentType: mimeType,
-      upsert: false,
+      upsert: true,
     });
 
   if (error) throw new Error(`Storage upload failed: ${error.message}`);

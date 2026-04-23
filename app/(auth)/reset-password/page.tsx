@@ -14,15 +14,16 @@ function ResetPasswordForm() {
   const searchParams = useSearchParams();
 
   useEffect(() => {
-    const code = searchParams.get("code");
+    const supabase = createClient();
 
+    // ── PKCE flow: link contains ?code= ──────────────────────────────────────
+    const code = searchParams.get("code");
     if (code) {
       (async () => {
         try {
-          const supabase = createClient();
           await supabase.auth.exchangeCodeForSession(code);
         } catch {
-          // Still show form even if exchange fails
+          // Show the form anyway and let Supabase validate on submit
         } finally {
           setReady(true);
         }
@@ -30,7 +31,15 @@ function ResetPasswordForm() {
       return;
     }
 
-    const supabase = createClient();
+    // ── Implicit flow: link contains #access_token + type=recovery in hash ───
+    // This fires when Supabase sends a link with hash params (older flow).
+    const hash = typeof window !== "undefined" ? window.location.hash : "";
+    if (hash.includes("type=recovery") || hash.includes("access_token")) {
+      setReady(true);
+      return;
+    }
+
+    // ── Fallback: listen for PASSWORD_RECOVERY auth state event ──────────────
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY") setReady(true);
     });
