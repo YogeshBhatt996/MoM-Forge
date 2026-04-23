@@ -7,13 +7,46 @@ import { momDataSchema } from "@/lib/validation/mom-schema";
 /** Marker prefix embedded in thrown errors so the UI can show a special banner. */
 export const AI_OVERLOAD_MARKER = "[AI_OVERLOAD]";
 
-/** Models to try in order when the primary is overloaded. */
+/**
+ * Model chain tried in order.
+ * gemini-2.5-flash (env override) → gemini-2.0-flash → gemini-1.5-flash
+ */
 const FALLBACK_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash"];
 
-/** How many times to retry a single model on 503 before giving up on it. */
+/** Max same-model retries for transient 503 errors (exponential back-off). */
 const MAX_RETRIES_PER_MODEL = 2;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Error classifiers ────────────────────────────────────────────────────────
+function errMsg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** 503 Service Unavailable — model is temporarily overloaded, worth retrying. */
+function isOverload(err: unknown): boolean {
+  const m = errMsg(err).toLowerCase();
+  return m.includes("503") || m.includes("service unavailable") || m.includes("high demand");
+}
+
+/**
+ * 429 Quota / Rate-limit — free-tier exhausted for this model.
+ * Retrying the SAME model won't help; must skip to the next fallback.
+ */
+function isQuotaExceeded(err: unknown): boolean {
+  const m = errMsg(err);
+  return (
+    m.includes("429") ||
+    m.toLowerCase().includes("quota") ||
+    m.toLowerCase().includes("rate limit") ||
+    m.toLowerCase().includes("too many requests")
+  );
+}
+
+/** Any error that should trigger a model-level fallback (not just a retry). */
+function isFallbackable(err: unknown): boolean {
+  return isOverload(err) || isQuotaExceeded(err);
+}
+
+// ─── Prompt builder ───────────────────────────────────────────────────────────
 function buildPrompt(
   transcriptText: string,
   templateDescription: string,
@@ -24,19 +57,12 @@ function buildPrompt(
     .replace("{{TRANSCRIPT}}", transcriptText);
 }
 
-function is503(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  return (
-    msg.includes("503") ||
-    msg.toLowerCase().includes("service unavailable") ||
-    msg.toLowerCase().includes("high demand")
-  );
-}
-
+// ─── Per-model caller with retry ──────────────────────────────────────────────
 /**
- * Call generateContent with exponential back-off on 503 errors.
- * Retries up to MAX_RETRIES_PER_MODEL times (delays: 2 s, 4 s).
- * Throws the original error if retries are exhausted or the error is not 503.
+ * Calls generateContent on the given model.
+ * - 503 (overload): retries up to MAX_RETRIES_PER_MODEL times with 2 s / 4 s back-off.
+ * - 429 (quota):    throws immediately — no point retrying the same model.
+ * - Other errors:   throws immediately.
  */
 async function callWithRetry(
   client: GoogleGenerativeAI,
@@ -58,18 +84,29 @@ async function callWithRetry(
       const result = await generativeModel.generateContent(prompt);
       return result.response.text();
     } catch (err) {
-      if (is503(err) && attempt < MAX_RETRIES_PER_MODEL) {
+      const quota = isQuotaExceeded(err);
+      const overload = isOverload(err);
+
+      if (quota) {
+        // 429 quota — skip same-model retries, let the outer loop try next model
+        console.warn(`[Gemini] Model "${modelName}" quota exceeded (429). Moving to fallback.`);
+        throw err;
+      }
+
+      if (overload && attempt < MAX_RETRIES_PER_MODEL) {
         const delayMs = Math.pow(2, attempt) * 2_000; // 2 s, 4 s
         console.warn(
-          `[Gemini] Model "${modelName}" returned 503 (attempt ${attempt + 1}/${MAX_RETRIES_PER_MODEL}). Retrying in ${delayMs / 1000}s…`
+          `[Gemini] Model "${modelName}" overloaded 503 (attempt ${attempt + 1}/${MAX_RETRIES_PER_MODEL}). Retrying in ${delayMs / 1000}s…`
         );
         await new Promise((res) => setTimeout(res, delayMs));
-      } else {
-        throw err; // non-503 or retries exhausted — bubble up
+        continue;
       }
+
+      // Retries exhausted for overload, or unrelated error
+      throw err;
     }
   }
-  // Unreachable, but TypeScript needs a return path
+
   throw new Error(`[Gemini] All retries exhausted for model "${modelName}"`);
 }
 
@@ -90,7 +127,7 @@ export class GeminiProvider implements AIProvider {
   ): Promise<MoMData> {
     const userPrompt = buildPrompt(transcriptText, templateDescription, promptTemplate);
 
-    // Build the full model chain: primary first, then fallbacks (deduplicated)
+    // Build full model chain — primary first, then deduplicated fallbacks
     const modelChain = [
       this.primaryModel,
       ...FALLBACK_MODELS.filter((m) => m !== this.primaryModel),
@@ -104,31 +141,32 @@ export class GeminiProvider implements AIProvider {
         const raw = await callWithRetry(this.client, modelName, userPrompt);
         const parsed = JSON.parse(raw);
         if (modelName !== this.primaryModel) {
-          console.warn(
-            `[Gemini] Primary model overloaded — succeeded with fallback: ${modelName}`
-          );
+          console.warn(`[Gemini] Succeeded with fallback model: ${modelName}`);
         }
         return momDataSchema.parse(parsed);
       } catch (err) {
         lastError = err;
-        if (is503(err)) {
+        if (isFallbackable(err)) {
+          // 503 overload (retries exhausted) OR 429 quota — try next model
           console.warn(
-            `[Gemini] Model "${modelName}" still unavailable after retries. Trying next fallback…`
+            `[Gemini] Model "${modelName}" unavailable (${isQuotaExceeded(err) ? "quota" : "overload"}). Trying next…`
           );
-          continue; // try the next model in the chain
+          continue;
         }
-        // Non-503 error (bad JSON, schema failure, auth, etc.) — fail immediately
+        // Non-transient error (bad JSON, auth, schema mismatch) — fail fast
         throw err;
       }
     }
 
-    // Every model in the chain returned 503 — surface a user-friendly message
-    const baseMsg =
-      lastError instanceof Error ? lastError.message : String(lastError);
+    // All models exhausted — emit a user-friendly tagged error
+    const base = errMsg(lastError);
+    const isQuota = isQuotaExceeded(lastError);
     throw new Error(
-      `${AI_OVERLOAD_MARKER} The AI service is currently experiencing high demand. ` +
-        `Please come back in about 10 minutes and retry this job. ` +
-        `(Technical detail: ${baseMsg})`
+      `${AI_OVERLOAD_MARKER} ${
+        isQuota
+          ? "The AI service's free-tier quota has been exhausted across all available models."
+          : "The AI service is currently experiencing high demand across all available models."
+      } Please come back in about 10 minutes and retry this job. (Detail: ${base})`
     );
   }
 }
